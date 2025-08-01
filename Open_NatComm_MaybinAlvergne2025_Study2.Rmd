@@ -1,0 +1,857 @@
+---
+title: "Long COVID and menstruation: potential bidirectional associations and mechanisms by Maybin et al. 2025 Study 3"
+author: "Alex Alvergne"
+date: "2024-08-29"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r packages, message=FALSE}
+
+# Ensures the package "pacman" is installed
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+
+# Packages available from CRAN
+##############################
+pacman::p_load(
+
+  here,
+  rio,
+  dplyr,
+  gtsummary,
+  ggplot2,
+  skimr,
+  janitor,
+  Hmisc
+  )
+
+```
+
+```{r survey_dataload, message=FALSE, warning=FALSE, results='hide'}
+# Load data
+data<-import(here("Natcomm_Maybin2025_Study3.xlsx"))
+dim(data)
+names(data)
+
+# N id = 54
+nlevels(as.factor(data$id))
+
+```
+
+
+
+# Descriptive statistics
+### Nb id, cycles and phases on entire dataset
+```{r desc, message=FALSE}
+# Create datasets
+library(dplyr)
+# Find number of daily entries
+dataperid<-data%>%group_by(id)%>%dplyr::slice(1)
+summary(dataperid$n)
+
+# Find numbers of cycles contributed on average
+dataperidpercycle <- data %>%
+  group_by(id, counter) %>%
+  dplyr::slice(1) %>%
+  ungroup()
+dim(dataperidpercycle) # 149 cycles
+
+
+# Distinct phases
+dataperidperphase<- data %>%
+  group_by(id, phase_all) %>%
+  dplyr::slice(1) %>%
+  ungroup()
+dim(dataperidperphase) # 131 phases
+table(dataperidperphase$phase_all) # LS/M -P-S // 54 - 33 - 44
+
+# Median number of cycles contributed by participants
+summary(dataperidpercycle$counter)
+table(dataperidpercycle$id,dataperidpercycle$counter)
+tab<-as.data.frame(rowSums(table(dataperidpercycle$id,dataperidpercycle$counter)))
+names(tab)<-"count"
+summary(tab$count)
+
+table(as.factor((tab$count)))
+
+
+```
+
+
+# Number of symptoms
+
+#### Create datasets with and without mild symptoms
+```{r df_nb, message=FALSE}
+
+# Counting nb distinct symptoms per day per id
+distinct_symptoms_list_perid_perday <- data %>%
+  filter(severity_int > 0) %>%
+  filter(symptom!="Please tell us your volume of menstural bleeding today")%>%
+  filter(symptom!="How would you rate how you feel today, on a scale of 0-100% (with 100% being how you felt before COVID-19)?")%>%
+  dplyr::group_by(id, date_created) %>%
+  dplyr::summarize(distinct_symptoms = length(unique(symptom))) # how many symptoms each day
+
+
+## Summary statistics on the variable
+summary(distinct_symptoms_list_perid_perday$distinct_symptoms)
+
+
+## Counting nb distinct symptoms per day per id
+distinct_symptoms_list_perid_perday_severe <- data %>%
+  filter(severity_int > 1) %>%
+  filter(symptom!="Please tell us your volume of menstural bleeding today")%>%
+  filter(symptom!="How would you rate how you feel today, on a scale of 0-100% (with 100% being how you felt before COVID-19)?")%>%
+  dplyr::group_by(id, date_created) %>%
+  dplyr::summarize(distinct_symptoms = length(unique(symptom))) # how many symptoms each day
+
+
+## Summary statistics on the variable
+summary(distinct_symptoms_list_perid_perday_severe$distinct_symptoms)
+
+```
+
+
+#### Merge datanumber with dataperidperday
+```{r mergedatasets, message=FALSE}
+
+# df on nb
+datanumber<-distinct_symptoms_list_perid_perday
+
+#
+datanumberperidperday<-data %>%
+  group_by(id,date_created)%>%
+  dplyr::slice(1)%>%
+  ungroup()
+
+datanumberperidperday<-datanumberperidperday%>%
+  left_join(datanumber,by=c("id","date_created"))
+
+```
+
+
+#### Non-parametric tests
+##### Calculer nb de symptoms moyens par phase
+```{r countnbsymptomsperphase, message=FALSE}
+datasympphase<- datanumberperidperday %>%
+  mutate(phase_all=as.factor(phase_all))%>%
+  group_by(id,phase_all)%>%
+  summarise(distinct_symptoms=median(distinct_symptoms))%>%
+  filter(is.na(phase_all)==FALSE) %>%
+  filter(is.na(distinct_symptoms)==FALSE)
+# 130 phases when all symptoms from a little are experienced
+
+
+
+# taille chaque groupe
+table(datasympphase$phase_all)
+
+
+# Nb ids avec data dans chaque phase
+library(tidyverse)
+tab<-(table(datasympphase$id,datasympphase$phase_all))
+
+library(dplyr)
+
+tabdf<-tab%>%
+  as.data.frame.matrix() %>%
+  tibble::rownames_to_column("id") %>%
+  mutate(
+    ALL = as.numeric(`P`)+as.numeric(`S`)+as.numeric(`LS/M`),
+    LSM_P = as.numeric(`LS/M`)+as.numeric(`P`),
+    LSM_S = as.numeric(`LS/M`)+as.numeric(`S`),
+    P_S = as.numeric(`P`)+as.numeric(`S`)
+)
+
+# list ids pour comparuison LSM_P
+
+
+listids_all<-tabdf%>%
+  filter(ALL==3) %>%
+ dplyr::select(id) # 32 people
+dim(listids_all) #
+
+
+listids_lsm_p<-tabdf%>%
+  filter(LSM_P==2) %>%
+  dplyr::select(id) # 32 people
+dim(listids_lsm_p)
+
+listids_lsm_s<-tabdf%>%
+  dplyr::filter(LSM_S==2) %>%
+  dplyr::select(id) # 44 people
+dim(listids_lsm_s)
+
+
+listids_ps<-tabdf%>%
+  filter(P_S==2) %>%
+  dplyr::select(id) # 32 people
+dim(listids_ps)
+```
+
+##### Friedman test
+```{r friedmanall, message=FALSE}
+
+listids_all<-unlist(c(listids_all))
+library(dplyr)
+dataidbyphase_all<-datasympphase %>%
+  filter(id %in% listids_all)%>%
+  filter(phase_all=="LS/M" | phase_all=="S" | phase_all=="P")
+
+dim(dataidbyphase_all)
+
+
+# Friedman test
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+
+# Summary statistics for nb of symptoms
+dataidbyphase_all %>%
+  group_by(phase_all) %>%
+  get_summary_stats(distinct_symptoms, type = "common")
+
+# visualization
+plotnp<-ggboxplot(dataidbyphase_all, x = "phase_all", y = "distinct_symptoms", add = "jitter",ylab="Median number of daily symptoms", xlab="Phase of the menstrual cycle")
+
+# Friedman effect size
+df<-as.data.frame(dataidbyphase_all)
+res.fried <- df %>% friedman_test(distinct_symptoms ~ phase_all|id)
+res.fried
+
+res.size<- df %>% friedman_effsize(distinct_symptoms ~ phase_all|id)
+res.size 
+
+
+# visualization
+my_comparisons <- list(c("LS/M", "P"), c("LS/M", "S"))
+
+plotnp<-ggboxplot(dataidbyphase_all, x = "phase_all", y = "distinct_symptoms", add = "jitter",ylab="Median number of  daily symptoms", xlab="Phase of the menstrual cycle", color="phase_all")+
+ stat_compare_means(comparisons = my_comparisons) +
+  labs(
+    subtitle = get_test_label(res.fried,  detailed = TRUE),
+ #   caption = get_pwc_label(pwc)
+  )+
+ scale_color_discrete(guide = FALSE) +  # This removes the entire legend
+  theme(
+    legend.position = "none"  # Ensure no legend is shown
+  )
+
+# plot 
+plotnp
+
+#
+
+
+
+```
+
+
+#### Parametric tests
+##### Distribution of the number of symptoms
+
+```{r densnbsymptoms, message=FALSE}
+# Super library pour les plots
+library("ggpubr")
+dens<-ggdensity(datanumberperidperday, x = "distinct_symptoms",
+   add = "mean", rug = TRUE,
+   color = "phase_all", fill = "phase_all", xlab="Number of daily symptoms", ylab=c(""),legend.title = "Menstrual cycle phase",labels=c("Perimenstrual","Secretory","Proliferative"))
+
+dens
+```
+
+
+##### Model  Poisson
+
+```{r variables, message=FALSE}
+# Age group
+datanumberperidperday<-datanumberperidperday%>%
+  mutate(age_group=case_when(
+   Age <40 ~ "Below 40 years",
+    Age >39  ~ "40 years+"
+    ))
+
+
+# on définit le niveau de réference
+datanumberperidperday$phase_all <-relevel(as.factor(datanumberperidperday$phase_all), ref = "S")
+datanumberperidperday$age_group <-relevel(as.factor(datanumberperidperday$age_group), ref = "Below 40 years")
+```
+
+
+```{r nbsymptomspoisson, message=FALSE}
+
+# set up
+dataphase_poisson<-datanumberperidperday
+names(dataphase_poisson)[59]<-"number_of_distinct_symptoms"
+
+# Model minimally adjusted for phase and age
+library(lme4)
+mixed_model_poisson<- glmer(number_of_distinct_symptoms ~ phase_all + age_group+ (1 | id/phase_all), data = dataphase_poisson, family=poisson) # consider repeated measures in each phase
+
+# Check residuals
+qqnorm(resid(mixed_model_poisson))
+hist(resid(mixed_model_poisson))
+plot(fitted(mixed_model_poisson),resid(mixed_model_poisson))
+
+# check for overdispersion
+p_load("blmeco") 
+dispersion_glmer(mixed_model_poisson) #
+
+# signifiance tests
+summary(mixed_model_poisson)
+Anova(mixed_model_poisson, type=3)
+
+# tables
+library(pacman)
+install.packages(c("sjstats", "sjPlot"))
+sjPlot::tab_model(mixed_model_poisson, file="TableS7_poisson.pdf")
+
+# plot
+# set up
+p_load(emmeans, ggplot2, ggthemes)
+
+# Calculate estimated marginal means
+emmeans_results <- emmeans(mixed_model_poisson, ~ phase_all)
+
+# Print the results (optional)
+print(emmeans_results)
+
+# Create a publication-ready plot
+plot_emmeans <- plot(emmeans_results) +
+  theme_minimal(base_size = 15) +  # Use a clean, minimal theme with larger base font size
+  labs(
+    x = "Menstrual Cycle Phase",
+    y = "Estimated Marginal Means (Symptoms/Day)",
+    title = "Estimated Marginal Means by Menstrual Cycle Phase",
+    caption = "Error bars represent 95% confidence intervals."
+  ) +
+  theme(
+ #   plot.title = element_text(hjust = 0.5, face = "bold"),  # Center and bold the title
+    plot.caption = element_text(hjust = 0.5, face = "italic"),  # Center and italicize the caption
+   # axis.title = element_text(face = "bold"),  # Bold axis titles
+    axis.text = element_text(size = 12),  # Increase size of axis text
+    panel.grid.major = element_line(color = "grey80"),  # Lighten major grid lines
+    panel.grid.minor = element_blank()  # Remove minor grid lines
+  ) +
+  scale_color_manual(values = c("#0073C2FF", "#EFC000FF", "#868686FF")) +  # Custom color palette
+  scale_fill_manual(values = c("#0073C2FF", "#EFC000FF", "#868686FF"))  # Custom fill palette
+
+# Display the plot
+
+print(plot_emmeans)
+```
+
+#### Overall plot symptoms
+```{r ploall, message=FALSE}
+p_load(ggpubr)
+
+# Arrange the three plots into a single figure
+combined_plot <- ggarrange(
+  plotnp, dens, 
+  labels = c("A", "B"),  # Label the plots A, B, C
+  ncol = 2, nrow = 1,  # Arrange in a single column (you can also use ncol = 3, nrow = 1 for a row)
+  align = "h"  # Align plots vertically (use "h" for horizontal alignment)
+)
+
+# Display the combined plot
+print(combined_plot)
+
+ggsave("plotnumbersymptoms.jpeg",combined_plot, width=10,height=5)
+
+```
+
+
+# Severity of symptoms
+#### Dataset
+```{r dataseverity, message=FALSE}
+dataseverity<-data%>%
+  filter(symptom!="Please tell us your volume of menstural bleeding today")%>%
+  filter(symptom!="How would you rate how you feel today, on a scale of 0-100% (with 100% being how you felt before COVID-19)?")
+  
+
+# order factor
+severity_levels <- c("Not at all","A little", "Quite a bit","A lot","Extremely")
+
+# Convert the column to an ordered factor with the specified order
+dataseverity$severity_text <- factor(dataseverity$severity_text, levels = severity_levels, ordered = TRUE)
+
+# Example mapping of long titles to shorter titles
+symptom_short_names <- c(
+  "Abdominal pain (excluding period pains)" = "Abdominal pain",
+  "Brain fog / cognitive dysfunction" = "Brain fog",
+  "Breathing difficulty" = "Breathing issues",
+  "Change in smell and taste" = "Smell/Taste change",
+  "Chest tightness" = "Chest tightness",
+  "Chills, flushing, sweats" = "Chills/Sweats",
+  "Diarrhoea" = "Diarrhea",
+  "Disturbed sleep" = "Disturbed sleep",
+  "Dizziness and balance issues" = "Dizziness",
+  "Dry cough" = "Dry cough",
+  "Elevated temperature (between 37C and 38C or 98.6F and 100.4F)" = "Elevated temperature",
+  "Fatigue" = "Fatigue",
+  "Headache" = "Headache",
+  "Heart palpitations (extra awareness of heart beat or irregular heart beat)" = "Heart palpitations",
+  "Insomnia (unable to sleep)" = "Insomnia",
+  "Joint pain" = "Joint pain",
+  "Loss of appetite" = "Loss of appetite",
+  "Memory impairment" = "Memory issues",
+  "Muscle aches" = "Muscle aches",
+  "Nausea" = "Nausea",
+  "Pain/burning in the chest" = "Chest pain",
+  "Post-exertional malaise (exhaustion after exercise/effort)" = "Post-exertional malaise",
+  "Sensorimotor symptoms (e.g. tingling/pins and needles)" = "Sensorimotor issues",
+  "Shortness of breath" = "Breathlessness",
+  "Sore throat" = "Sore throat",
+  "Speech and language symptoms (e.g. difficulty finding words)" = "Speech issues",
+  "Tachycardia (heart beating too fast)" = "Tachycardia",
+  "Tinnitus (ringing in the ears)" = "Tinnitus",
+  "Vision symptoms (e.g. blurred vision, flashing)" = "Vision issues"
+)
+
+# Replace long titles with shorter titles in the dataseverity data frame
+dataseverity$symptom <- symptom_short_names[dataseverity$symptom]
+
+```
+
+
+
+#### Plot distribution of severity across symptoms
+```{r plotall, message=FALSE}
+
+library(ggplot2)
+
+# Define a manual color palette that simulates a gradient
+color_palette <- c(
+  "Not at all" = "whitesmoke",
+  "A little" = "peachpuff",    # 
+  "Quite a bit" = "salmon1", # Orange
+  "A lot" = "salmon3",      # Dark Orange
+  "Extremely" = "red3"
+)
+
+# Create the bar plot with the legend at the bottom
+plotseveritybarplot <- dataseverity %>%
+  ggplot(aes(x = phase_all, fill = severity_text)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "",  # Label for the x-axis
+    y = "Proportion",             # Label for the y-axis
+    title = "",  # Title for the plot
+    fill = "Long-COVID Symptom Severity"            # Legend title
+  ) +
+  scale_fill_manual(values = color_palette) +  # Apply the manual color palette
+  theme_minimal() +  # Use a minimal theme
+  theme(
+    legend.position = "bottom",                # Move the legend to the bottom
+  #  legend.title = element_text(face = "bold"),  # Bold the legend title
+    legend.justification = "center",           # Center the legend horizontally
+   # axis.title.x = element_text(face = "bold"),  # Bold the x-axis label
+  #  axis.title.y = element_text(face = "bold"),  # Bold the y-axis label
+    axis.text = element_text(color = "black"), # Black color for axis text
+    strip.text = element_text(size = 6)         # Adjust facet title text size
+  ) +
+  facet_wrap(~symptom, scales = "free_y", ncol = 6)  # Set the number of columns to 6
+
+# Save the plot as a PDF
+ggsave("plotseveritybarplot.pdf", plot = plotseveritybarplot, width = 10, height = 8)
+ggsave("plotseveritybarplot.jpeg", plot = plotseveritybarplot, width = 10, height = 8)
+
+```
+
+#### Model Severity with Ordered logistic regression
+
+We must adjust for multiple comparisons
+```{r severity_ordlogreg, message=FALSE}
+library(dplyr)
+p_load(multcomp)
+p_load(ordinal)
+p_load(kableExtra)
+
+#
+dataseverity <- data %>%
+  filter(
+    !symptom %in% c("Please tell us your volume of menstrual bleeding today",
+                    "How would you rate how you feel today, on a scale of 0-100% (with 100% being how you felt before COVID-19)?"),
+    severity_text %in% c("A little", "A lot", "Quite a bit", "Extremely")
+  )
+
+
+
+# order factor
+severity_levels <- c("A little","Quite a bit","A lot","Extremely")
+
+# Convert the column to an ordered factor with the specified order
+dataseverity$severity_text <- factor(dataseverity$severity_text, levels = severity_levels, ordered = TRUE)
+
+# we can decide to regroup categories to ensure robust estimates for categries, and avoid violating assumptions of proportional odds
+# we check how many in each
+
+table(dataseverity$severity_text)
+
+# we merge a lot and extremely due to convergence problems
+dataseverity<-dataseverity%>%
+  mutate(severity_bin = case_when(
+    severity_text =="A little"~ "Minor",
+    severity_text == "Quite a bit"~"Moderate",
+    severity_text == "A lot"  ~ "Severe",
+    severity_text =="Extremely"~"Severe"
+  ))
+
+table(dataseverity$severity_bin)
+dataseverity$severity_bin<-as.factor(dataseverity$severity_bin)
+
+# rename symptom
+# Example mapping of long titles to shorter titles
+symptom_short_names <- c(
+  "Abdominal pain (excluding period pains)" = "Abdominal pain",
+  "Brain fog / cognitive dysfunction" = "Brain fog",
+  "Breathing difficulty" = "Breathing issues",
+  "Change in smell and taste" = "Smell/Taste change",
+  "Chest tightness" = "Chest tightness",
+  "Chills, flushing, sweats" = "Chills/Sweats",
+  "Diarrhoea" = "Diarrhea",
+  "Disturbed sleep" = "Disturbed sleep",
+  "Dizziness and balance issues" = "Dizziness",
+  "Dry cough" = "Dry cough",
+  "Elevated temperature (between 37C and 38C or 98.6F and 100.4F)" = "Elevated temperature",
+  "Fatigue" = "Fatigue",
+  "Headache" = "Headache",
+  "Heart palpitations (extra awareness of heart beat or irregular heart beat)" = "Heart palpitations",
+  "Insomnia (unable to sleep)" = "Insomnia",
+  "Joint pain" = "Joint pain",
+  "Loss of appetite" = "Loss of appetite",
+  "Memory impairment" = "Memory issues",
+  "Muscle aches" = "Muscle aches",
+  "Nausea" = "Nausea",
+  "Pain/burning in the chest" = "Chest pain",
+  "Post-exertional malaise (exhaustion after exercise/effort)" = "Post-exertional malaise",
+  "Sensorimotor symptoms (e.g. tingling/pins and needles)" = "Sensorimotor issues",
+  "Shortness of breath" = "Breathlessness",
+  "Sore throat" = "Sore throat",
+  "Speech and language symptoms (e.g. difficulty finding words)" = "Speech issues",
+  "Tachycardia (heart beating too fast)" = "Tachycardia",
+  "Tinnitus (ringing in the ears)" = "Tinnitus",
+  "Vision symptoms (e.g. blurred vision, flashing)" = "Vision issues"
+)
+dataseverity$symptom <- symptom_short_names[dataseverity$symptom]
+
+# Age group
+dataseverity<-dataseverity%>%
+  mutate(age_group=case_when(
+   Age <40 ~ "Below 40 years",
+    Age >39  ~ "40 years+"
+    ))
+
+
+# on définit le niveau de réference
+dataseverity$phase_all <-relevel(as.factor(dataseverity$phase_all), ref = "S")
+
+
+# Extract unique symptoms
+symptoms <- unique(dataseverity$symptom)
+
+```
+
+```{r severitymodels, message=FALSE}
+# Load necessary libraries
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(ordinal)
+
+# Initialize lists to store models and effects
+models <- list()
+effects <- list()
+
+# Loop over each symptom
+for (symptom in symptoms) {
+  
+  # Filter data for the current symptom
+  symptom_data <- dataseverity %>%
+    filter(symptom == !!symptom)
+  
+  # Ensure 'id' is treated as a factor
+  symptom_data$id <- as.factor(symptom_data$id)
+  
+  # Fit the clmm2 model using the 'nlminb' optimizer
+  model <- clmm2(severity_bin ~ phase_all, 
+                 random = id, 
+                 data = symptom_data, 
+                 Hess = TRUE, 
+                 control = clmm2.control(method = "nlminb", maxIter = 1000, gradTol = 1e-5))
+  
+  # Store the model in the models list
+  models[[symptom]] <- model
+  
+  # Extract fixed effects from the model summary
+  model_summary <- coef(summary(model))
+  
+  # Filter for the effects related to phase_all
+  phase_all_effects <- model_summary[grep("phase_all", rownames(model_summary)), ]
+  
+  # Check if the phase_all effects exist and have rows
+  if (nrow(phase_all_effects) > 0) {
+    
+    # Extract the 'Estimate', 'Std. Error', and 'Pr(>|z|)' columns
+    fixed_effects <- phase_all_effects[, "Estimate"]
+    std_errors <- phase_all_effects[, "Std. Error"]
+    p_values <- phase_all_effects[, "Pr(>|z|)"]
+    
+    # Calculate the confidence intervals
+    ci_lower <- fixed_effects - 1.96 * std_errors
+    ci_upper <- fixed_effects + 1.96 * std_errors
+    
+    # Create a data frame with the effects, confidence intervals, and significance for plotting
+    effect_data <- data.frame(
+      Phase = rownames(phase_all_effects),
+      Effect = as.numeric(fixed_effects),
+      CI_Lower = as.numeric(ci_lower),
+      CI_Upper = as.numeric(ci_upper),
+      P_Value = as.numeric(p_values),
+      Significant = as.numeric(p_values) < 0.05,  # Mark significant effects
+      Symptom = symptom
+    )
+    
+    # Store the effect data for each model
+    effects[[symptom]] <- effect_data
+  } else {
+    # If no phase_all effects, create an empty data frame or skip
+    warning(paste("No phase_all effects for symptom:", symptom))
+  }
+}
+```
+
+```{r severityplot, message=FALSE}
+
+# Combine all the effects into one data frame for plotting
+all_effects <- do.call(rbind, effects)
+
+# Add the reference category (assumed to be zero effect)
+reference_data <- data.frame(
+  Phase = "Reference",  # Label for the reference category
+  Effect = 0,           # Zero for the baseline reference
+  CI_Lower = 0,         # Zero for the baseline reference
+  CI_Upper = 0,         # Zero for the baseline reference
+  P_Value = NA,         # No p-value for the reference
+  Significant = FALSE,  # Reference is not significant
+  Symptom = rep(names(models), each = 1)  # Repeat for each symptom
+)
+
+# Combine the reference data with the effects data
+all_effects <- rbind(all_effects, reference_data)
+
+# Order the Phase variable and set labels
+all_effects$Phase <- factor(all_effects$Phase, 
+                            levels = c("phase_allLS/M", "phase_allP", "Reference"), 
+                            labels = c("LS/M", "P", "S"))
+
+# Plot the effects for each model (symptom) with separate panels for each symptom
+plotseverity<-ggplot(all_effects, aes(x = Phase, y = Effect)) +
+  geom_line() +
+  geom_point(aes(color = Significant)) +  # Color points by significance
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +  # Add error bars for confidence intervals
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # Dashed line at y=0 for reference
+  scale_color_manual(values = c("black", "red")) +  # Color significant points in red
+  theme_minimal() +
+  labs(title = "",
+       x = "Menstrual Cycle Phase",
+       y = "Effect estimate of symptom severity") +
+  facet_wrap(~ Symptom, scales = "free_y", ncol = 5) +  # Set number of columns to 5
+  theme(legend.position = "none",  # Remove legend since it's already in facets
+        strip.background = element_blank(), 
+        strip.text = element_text(face = "bold", size = 7))
+
+#
+plotseverity
+ggsave("plotseverity_predicted.jpeg",plotseverity, width=10,height=6)
+ggsave("plotseverity_predicted.png",plotseverity, width=10,height=6)
+```
+
+
+```{r severitytable, message=FALSE}
+
+# Initialize an empty data frame to store the results
+summary_table <- data.frame(
+  Symptom = character(),
+  Term = character(),
+  Estimate = numeric(),
+  StdError = numeric(),
+  ZValue = numeric(),
+  PValue = numeric(),
+  AdjustedPValue = numeric(),
+  OddsRatio = numeric(),
+  CI_Lower = numeric(),
+  CI_Upper = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each model and extract the summary information
+for (symptom in names(models)) {
+  model <- models[[symptom]]
+  summary <- summary(model)
+  
+  # Extract fixed effects estimates
+  estimates <- summary$coefficients
+  for (i in 1:nrow(estimates)) {
+    term <- rownames(estimates)[i]
+    estimate <- round(estimates[i, "Estimate"], 3)
+    std_error <- round(estimates[i, "Std. Error"], 3)
+    z_value <- round(estimates[i, "z value"], 3)
+    p_value <- round(estimates[i, "Pr(>|z|)"], 3)
+    
+    # Calculate odds ratio and 95% CI
+    odds_ratio <- round(exp(estimate), 3)
+    ci_lower <- round(exp(estimate - 1.96 * std_error), 3)
+    ci_upper <- round(exp(estimate + 1.96 * std_error), 3)
+    
+    # Add the extracted information to the summary table
+    summary_table <- rbind(summary_table, data.frame(
+      Symptom = symptom,
+      Term = term,
+      Estimate = estimate,
+      StdError = std_error,
+      ZValue = z_value,
+      PValue = p_value,
+      AdjustedPValue = NA,  # Placeholder for now
+      OddsRatio = odds_ratio,
+      CI_Lower = ci_lower,
+      CI_Upper = ci_upper
+    ))
+  }
+}
+
+# Adjust p-values for multiple comparisons using FDR
+summary_table$AdjustedPValue <- round(p.adjust(summary_table$PValue, method = "fdr"), 3)
+
+
+write.csv(summary_table, file = "summary_table_sev_phase.csv")
+
+# Filter for specific terms
+filtered_table <- summary_table 
+#%>%
+#  filter(Term %in% c("phase_allLS/M", "phase_allP"))
+
+# Format significant rows in bold
+filtered_table <- filtered_table %>%
+  mutate(across(everything(), ~ ifelse(AdjustedPValue < 0.05, cell_spec(., "html", bold = TRUE), .)))
+
+# Create a publication-ready table
+publication_table <- filtered_table %>%
+  kable("html", escape = FALSE) %>%
+  kable_styling(full_width = FALSE)
+
+# Export the publication-ready table to an HTML file
+p_load("webshot2")
+save_kable(publication_table, file = "publication_table_sev_phase.html")
+
+# Display the publication-ready table
+print(publication_table)
+
+webshot::webshot("publication_table_sev_phase.html", "TableS9_publication_table_sev_phase.pdf")
+
+#
+
+
+```
+
+
+# Sample Information 
+```{r info, message=FALSE}
+library(dplyr)
+
+# Updated function for dataseverity
+get_sample_info <- function(data, grouping_vars = NULL) {
+  
+  if(is.null(grouping_vars)) {
+    # Overall sample info
+    sample_info <- data %>%
+      summarise(
+        n_participants = n_distinct(id),
+        n_symptoms_tracked = n_distinct(symptom),
+        n_observations = n(),
+        n_days_total = n_distinct(paste(id, forward)),
+        mean_obs_per_participant = round(n() / n_distinct(id), 1),
+        mean_days_per_participant = round(n_distinct(paste(id, forward)) / n_distinct(id), 1)
+      )
+  } else {
+    # Grouped sample info
+    sample_info <- data %>%
+      group_by(across(all_of(grouping_vars))) %>%
+      summarise(
+        n_participants = n_distinct(id),
+        n_observations = n(),
+        n_days_total = n_distinct(paste(id, forward)),
+        mean_obs_per_participant = round(n() / n_distinct(id), 1),
+        mean_days_per_participant = round(n_distinct(paste(id, forward)) / n_distinct(id), 1),
+        .groups = 'drop'
+      )
+  }
+  
+  return(sample_info)
+}
+
+# Get sample information
+overall_sample <- get_sample_info(dataseverity)
+print("Overall sample:")
+print(overall_sample)
+
+# By menstrual cycle phase
+phase_sample <- get_sample_info(dataseverity, "phase_all")
+print("By menstrual cycle phase:")
+print(phase_sample)
+
+# By symptom type
+symptom_sample <- get_sample_info(dataseverity, "symptom")
+print("By symptom (showing top 10):")
+print(head(symptom_sample %>% arrange(desc(n_observations)), 10))
+
+# Summary of symptom distribution
+symptom_summary <- dataseverity %>%
+  count(symptom, name = "n_observations") %>%
+  arrange(desc(n_observations))
+
+cat("\nSymptom frequency summary:\n")
+cat("Total symptoms tracked:", nrow(symptom_summary), "\n")
+cat("Most reported symptom:", symptom_summary$symptom[1], "(", symptom_summary$n_observations[1], "observations)\n")
+cat("Least reported symptom:", tail(symptom_summary$symptom, 1), "(", tail(symptom_summary$n_observations, 1), "observations)\n")
+
+```
+
+
+
+
+
+#  General Plot for Publication 
+```{r ploall, message=FALSE}
+
+library(gridExtra)
+library(ggplot2)
+library(cowplot)
+
+# Save the grid to an A4-sized PDF or image file with plot labels
+ggsave("Figure3_A4.pdf",  # Change to "my_plot_A4.png" if you want an image file
+       plot = grid.arrange(
+         grobs = list(
+           plot_grid(plotnp, labels = "A"), 
+           plot_grid(dens, labels = "B"),
+           plot_grid(plotseveritybarplot, labels = "C"),
+           plot_grid(plotseverity, labels = "D")
+         ),
+         widths = c(1, 1),
+         heights = c(3, 6, 5),
+         layout_matrix = rbind(c(1, 2),
+                               c(3, 3),
+                               c(4, 4))
+       ),
+       width = 8.27,       # A4 width in inches
+       height = 15.69,     # A4 height in inches
+       units = "in")
+```
+
